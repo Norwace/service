@@ -304,9 +304,9 @@ function renderDetail(){
   '</div>'+
   '<button class="btn" onclick="openServiceForm(\''+c.id+'\')">Registrer service</button>';
 
-  if(c.notes)     h += '<h2>Notater</h2><div class="notebox">'+esc(c.notes)+'</div>';
-  if(c.access)    h += '<h2>Tilgang</h2><div class="notebox mono">'+esc(c.access)+'</div>';
-  if(c.equipment) h += '<h2>Anlegg / oppsett</h2><div class="notebox">'+esc(c.equipment)+'</div>';
+  h += '<h2>Notater</h2>'+sectionBox(c.id, "notes", c.notes, "Trykk for å legge til notat", false);
+  h += '<h2>Tilgang</h2>'+sectionBox(c.id, "access", c.access, "Trykk for å legge til tilgangsinfo", true);
+  h += '<h2>Anlegg / oppsett</h2>'+sectionBox(c.id, "equipment", c.equipment, "Trykk for å legge til oppsett", false);
 
   h += '<h2>Servicehistorikk</h2>';
   if(c.history && c.history.length){
@@ -320,6 +320,33 @@ function renderDetail(){
   }
   h += '<button class="btn-danger" onclick="delCompany(\''+c.id+'\')">Slett bedrift</button>';
   $("app").innerHTML = h;
+}
+function sectionBox(cid, field, val, placeholder, mono){
+  const cls = "notebox" + (mono ? " mono" : "");
+  const inner = val ? esc(val) : '<span style="color:var(--muted); opacity:.7">'+placeholder+'</span>';
+  return '<div class="'+cls+'" style="cursor:pointer" onclick="editField(\''+cid+'\',\''+field+'\')">'+inner+'</div>';
+}
+const FIELD_META = {
+  notes:     {title:"Notater", mono:false, ph:""},
+  access:    {title:"Tilgang (koder, nøkkel, åpningstid)", mono:true, ph:""},
+  equipment: {title:"Anlegg / oppsett", mono:false, ph:"F.eks. 4 tappekraner, blandgass 70/30, kjøler i kjeller…"}
+};
+function editField(cid, field){
+  history.pushState({modal:1, v:view, d:detailId}, "");
+  const c = DB.companies.find(x=>x.id===cid);
+  const m = FIELD_META[field];
+  $("modal").innerHTML =
+  '<div class="overlay" onclick="if(event.target===this) closeModal()"><div class="sheet">'+
+  '<h3>'+m.title+'</h3>'+
+  '<textarea id="ef_val" autofocus class="'+(m.mono?"mono":"")+'" style="min-height:160px" placeholder="'+esc(m.ph)+'">'+esc(c[field]||"")+'</textarea>'+
+  '<button class="btn" onclick="saveField(\''+cid+'\',\''+field+'\')">Lagre</button>'+
+  '<button class="btn2" onclick="closeModal()">Avbryt</button>'+
+  '</div></div>';
+}
+function saveField(cid, field){
+  const c = DB.companies.find(x=>x.id===cid);
+  c[field] = $("ef_val").value.trim();
+  save(); closeModal(); render(); toast("Lagret");
 }
 function openServiceForm(id, histId){
   history.pushState({modal:1, v:view, d:detailId}, "");
