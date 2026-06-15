@@ -1,4 +1,4 @@
-const CACHE = "anleggsservice-v1";
+const CACHE = "anleggsservice-v2";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
@@ -11,7 +11,22 @@ self.addEventListener("activate", e => {
   self.clients.claim();
 });
 self.addEventListener("fetch", e => {
-  e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then(r => r || fetch(e.request))
-  );
+  if(e.request.method !== "GET") return;
+  const url = new URL(e.request.url);
+  const isAppShell = e.request.mode === "navigate" ||
+    url.pathname.endsWith("/") || url.pathname.endsWith("index.html");
+  if(isAppShell){
+    // Nett først for selve appen: henter nyeste når du har dekning,
+    // faller tilbake til cache når du er offline.
+    e.respondWith(
+      fetch(e.request).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put("./index.html", copy));
+        return res;
+      }).catch(() => caches.match("./index.html"))
+    );
+  } else {
+    // Cache først for ikoner/manifest (endres sjelden).
+    e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(r => r || fetch(e.request)));
+  }
 });
