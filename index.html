@@ -640,7 +640,6 @@ function renderBackup(){
   const nServices = DB.companies.reduce((n,c)=>n+(c.history?c.history.length:0),0);
   $("app").innerHTML =
   '<h1>Backup</h1>'+
-  cloudSection()+
   '<h2>Status</h2>'+
   '<div class="box">'+
   '<div class="row"><span class="rlabel">Bedrifter</span><span class="rval">'+DB.companies.length+'</span></div>'+
@@ -654,7 +653,8 @@ function renderBackup(){
   '<button class="btn2" onclick="$(\'importfile\').click()">Importer backup</button>'+
   '<input id="importfile" type="file" accept=".json,application/json" style="display:none" onchange="importData(this)">'+
   '<div class="notebox" style="color:var(--muted); margin-top:12px">Uten sky-synk lagres alt lokalt på denne telefonen. '+
-  'Ta fil-backup jevnlig og legg fila i Google Drive. Ved telefonbytte: importer fila på ny telefon.</div>';
+  'Ta fil-backup jevnlig og legg fila i Google Drive. Ved telefonbytte: importer fila på ny telefon.</div>'+
+  cloudSection();
 }
 function exportData(){
   DB.lastExport = iso(today0());
