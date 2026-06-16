@@ -144,9 +144,9 @@ function load(){
   try{
     const raw = localStorage.getItem(KEY);
     if(raw){ const d = JSON.parse(raw);
-      return { companies:d.companies||[], appointments:d.appointments||[], lastExport:d.lastExport||null }; }
+      return { companies:d.companies||[], appointments:d.appointments||[], memos:d.memos||[], lastExport:d.lastExport||null }; }
   }catch(e){}
-  return { companies:[], appointments:[], lastExport:null };
+  return { companies:[], appointments:[], memos:[], lastExport:null };
 }
 function save(){ localStorage.setItem(KEY, JSON.stringify(DB)); }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -186,15 +186,17 @@ let searchQ = "";
 const ICONS = {
   dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
   cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  notes:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15a0 0 0 010 0H5a0 0 0 010 0V3z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
   backup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>'
 };
 function renderNav(){
-  const items = [["dash","Dashbord"],["cal","Kalender"],["backup","Backup"]];
+  const items = [["dash","Dashbord"],["cal","Kalender"],["notes","Notater"],["backup","Backup"]];
   $("nav").innerHTML = items.map(([k,t]) =>
-    '<button class="'+((view===k||(k==="dash"&&view==="detail"))?"on":"")+'" onclick="go(\''+k+'\')">'+ICONS[k]+t+'</button>').join("");
+    '<button class="'+((view===k||(k==="dash"&&view==="detail")||(k==="notes"&&view==="memo"))?"on":"")+'" onclick="go(\''+k+'\')">'+ICONS[k]+t+'</button>').join("");
 }
-function go(v){ history.pushState({v:v, d:null}, ""); setView(v); }
+function go(v){ searchQ = ""; history.pushState({v:v, d:null}, ""); setView(v); }
 function openDetail(id){ history.pushState({v:"detail", d:id}, ""); setView("detail", id); }
+function openMemo(id){ history.pushState({v:"memo", d:id}, ""); setView("memo", id); }
 function setView(v, d){ view = v; detailId = d || null; render(); window.scrollTo(0,0); }
 window.addEventListener("popstate", e => {
   if($("modal").innerHTML){ $("modal").innerHTML = ""; return; }
@@ -207,6 +209,8 @@ function render(){
   if(view==="dash") renderDash();
   else if(view==="detail") renderDetail();
   else if(view==="cal") renderCal();
+  else if(view==="notes") renderNotes();
+  else if(view==="memo") renderMemo();
   else renderBackup();
 }
 
@@ -235,7 +239,7 @@ function renderDashList(){
   $("dashlist").innerHTML = list.map(({c,s}) =>
     '<div class="card" onclick="openDetail(\''+c.id+'\')">'+
       '<div class="cardtop"><div><div class="cname">'+esc(c.name)+'</div>'+
-      (c.address ? '<div class="caddr">'+esc(c.address)+'</div>' : "")+'</div>'+
+      '<div class="caddr">Siste service: '+(c.lastService?fmt(c.lastService):"–")+'</div></div>'+
       '<span class="pill p-'+s.key+'">'+s.label+'</span></div>'+
       '<div class="gauge"><div class="g-'+s.key+'" style="width:'+s.pct+'%"></div></div>'+
     '</div>').join("");
@@ -480,6 +484,73 @@ function delAppt(id){
   save(); renderCal();
 }
 
+/* ================= notater (memos) ================= */
+function renderNotes(){
+  let h = "<h1>Notater</h1>";
+  h += '<input class="search" type="search" placeholder="Søk notat…" value="'+esc(searchQ)+'" oninput="searchQ=this.value; renderMemoList()">';
+  h += '<div id="memolist"></div>';
+  h += '<button class="fab" onclick="openMemoForm()" aria-label="Nytt notat">+</button>';
+  $("app").innerHTML = h;
+  renderMemoList();
+}
+function renderMemoList(){
+  const q = searchQ.trim().toLowerCase();
+  let list = DB.memos.filter(m => !q || m.title.toLowerCase().includes(q) || (m.body||"").toLowerCase().includes(q));
+  list = [...list].sort((a,b) => (b.updated||0) - (a.updated||0));
+  if(!DB.memos.length){
+    $("memolist").innerHTML = '<div class="empty">Ingen notater enda.<br>Trykk + for å lage det første.</div>';
+    return;
+  }
+  if(!list.length){ $("memolist").innerHTML = '<div class="empty">Ingen treff.</div>'; return; }
+  $("memolist").innerHTML = list.map(m => {
+    return '<div class="card" onclick="openMemo(\''+m.id+'\')">'+
+      '<div class="cname">'+esc(m.title)+'</div>'+
+      (m.body ? '<div class="caddr" style="white-space:pre-wrap; margin-top:6px">'+esc(m.body)+'</div>' : "")+
+    '</div>';
+  }).join("");
+}
+function openMemoForm(id){
+  history.pushState({modal:1, v:view, d:detailId}, "");
+  const m = id ? DB.memos.find(x=>x.id===id) : {};
+  $("modal").innerHTML =
+  '<div class="overlay" onclick="if(event.target===this) closeModal()"><div class="sheet">'+
+  '<h3>'+(id?"Rediger notat":"Nytt notat")+'</h3>'+
+  '<label>Tittel *</label><input id="m_title" value="'+esc(m.title||"")+'">'+
+  '<label>Innhold</label><textarea id="m_body" style="min-height:180px">'+esc(m.body||"")+'</textarea>'+
+  '<button class="btn" onclick="saveMemo('+(id?'\''+id+'\'':'null')+')">Lagre</button>'+
+  '<button class="btn2" onclick="closeModal()">Avbryt</button>'+
+  '</div></div>';
+}
+function saveMemo(id){
+  const title = $("m_title").value.trim();
+  if(!title){ toast("Tittel må fylles inn"); return; }
+  const body = $("m_body").value.trim();
+  if(id){
+    const m = DB.memos.find(x=>x.id===id); m.title=title; m.body=body; m.updated=Date.now();
+  }else{
+    DB.memos.push({ id:uid(), title, body, updated:Date.now() });
+  }
+  save(); closeModal();
+  if(view==="memo") setView("memo", id||null); else render();
+  toast("Lagret");
+}
+function renderMemo(){
+  const m = DB.memos.find(x=>x.id===detailId);
+  if(!m){ go("notes"); return; }
+  $("app").innerHTML =
+  '<div class="topbar"><button class="back" onclick="go(\'notes\')">‹ Tilbake</button>'+
+  '<div style="flex:1"></div><button class="btn-sm" onclick="openMemoForm(\''+m.id+'\')">Rediger</button></div>'+
+  '<h1 style="margin-top:0">'+esc(m.title)+'</h1>'+
+  (m.body ? '<div class="notebox">'+esc(m.body)+'</div>' : '<div class="notebox" style="color:var(--muted)">Tomt notat. Trykk Rediger for å fylle inn.</div>')+
+  '<button class="btn-danger" onclick="delMemo(\''+m.id+'\')">Slett notat</button>';
+}
+function delMemo(id){
+  const m = DB.memos.find(x=>x.id===id);
+  if(!confirm('Slette notatet "'+m.title+'"? Dette kan ikke angres.')) return;
+  DB.memos = DB.memos.filter(x=>x.id!==id);
+  save(); go("notes"); toast("Notat slettet");
+}
+
 /* ================= backup ================= */
 function renderBackup(){
   const nServices = DB.companies.reduce((n,c)=>n+(c.history?c.history.length:0),0);
@@ -489,6 +560,7 @@ function renderBackup(){
   '<div class="row"><span class="rlabel">Bedrifter</span><span class="rval">'+DB.companies.length+'</span></div>'+
   '<div class="row"><span class="rlabel">Registrerte besøk</span><span class="rval">'+nServices+'</span></div>'+
   '<div class="row"><span class="rlabel">Avtaler</span><span class="rval">'+DB.appointments.length+'</span></div>'+
+  '<div class="row"><span class="rlabel">Notater</span><span class="rval">'+DB.memos.length+'</span></div>'+
   '<div class="row"><span class="rlabel">Siste backup</span><span class="rval">'+(DB.lastExport?fmt(DB.lastExport.slice(0,10)):"Aldri")+'</span></div>'+
   '</div>'+
   '<button class="btn" onclick="exportData()">Last ned backup (fil)</button>'+
@@ -518,7 +590,7 @@ function importData(input){
       const d = JSON.parse(r.result);
       if(!Array.isArray(d.companies)) throw 0;
       if(!confirm("Importere "+d.companies.length+" bedrifter? Dette ERSTATTER alt som ligger i appen nå.")) return;
-      DB = { companies:d.companies, appointments:d.appointments||[], lastExport:d.lastExport||null };
+      DB = { companies:d.companies, appointments:d.appointments||[], memos:d.memos||[], lastExport:d.lastExport||null };
       save(); render(); toast("Backup importert");
     }catch(e){ toast("Ugyldig backupfil"); }
   };
