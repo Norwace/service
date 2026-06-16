@@ -148,8 +148,38 @@ function load(){
   }catch(e){}
   return { companies:[], appointments:[], memos:[], lastExport:null };
 }
-function save(){ localStorage.setItem(KEY, JSON.stringify(DB)); }
+let _cloudSaveTimer = null;
+function save(){
+  localStorage.setItem(KEY, JSON.stringify(DB));
+  if(window.fbSave && CLOUD){
+    clearTimeout(_cloudSaveTimer);
+    _cloudSaveTimer = setTimeout(()=>{ try{ window.fbSave(DB); }catch(e){} }, 600);
+  }
+}
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+/* ---- sky-tilstand (Firebase) ---- */
+let CLOUD = false;          // true når innlogget og synk er aktiv
+let cloudUser = null;       // {name, email} eller null
+// Kalles fra Firebase-modulen når innloggingsstatus endrer seg
+window.onAuthChange = function(user){
+  cloudUser = user;
+  CLOUD = !!user;
+  if(view === "backup") renderBackup();
+};
+// Kalles fra Firebase-modulen når skydata kommer inn (også ved endring fra andre enheter)
+window.onCloudData = function(data){
+  if(data && (Array.isArray(data.companies))){
+    DB = { companies:data.companies||[], appointments:data.appointments||[],
+           memos:data.memos||[], lastExport:data.lastExport||null };
+    localStorage.setItem(KEY, JSON.stringify(DB));
+    render();
+  } else {
+    // Ingen sky-data enda: hvis vi har lokale data, last dem opp
+    const hasLocal = DB.companies.length || DB.memos.length || DB.appointments.length;
+    if(hasLocal && window.fbSave){ window.fbSave(DB); toast("Lokale data lastet opp til skyen"); }
+  }
+};
 
 /* ================= helpers ================= */
 const $ = id => document.getElementById(id);
@@ -552,23 +582,79 @@ function delMemo(id){
 }
 
 /* ================= backup ================= */
+function cloudSection(){
+  const configured = !!localStorage.getItem("fb_config");
+  let h = '<h2>Sky / synk</h2>';
+  if(!configured){
+    h += '<div class="notebox" style="color:var(--muted)">Ikke satt opp enda. Lim inn Firebase-konfigurasjonen for å aktivere sky-synk mellom enheter.</div>'+
+    '<button class="btn2" onclick="openCloudSetup()">Sett opp Firebase</button>';
+    return h;
+  }
+  if(!window.fbReady){
+    h += '<div class="notebox" style="color:var(--muted)">Firebase er satt opp, men koblingen er ikke klar. Sjekk at du har nett, og prøv å laste appen på nytt.</div>'+
+    '<button class="btn2" onclick="openCloudSetup()">Endre Firebase-oppsett</button>';
+    return h;
+  }
+  if(CLOUD && cloudUser){
+    h += '<div class="box"><div class="row"><span class="rlabel">Innlogget</span><span class="rval">'+esc(cloudUser.email||cloudUser.name||"")+'</span></div>'+
+    '<div class="row"><span class="rlabel">Synk</span><span class="rval" style="color:var(--green)">Aktiv</span></div></div>'+
+    '<button class="btn2" onclick="window.fbPushLocal && window.fbPushLocal()">Last lokale data opp til skyen</button>'+
+    '<button class="btn-danger" onclick="window.fbSignOut && window.fbSignOut()">Logg ut</button>';
+  } else {
+    h += '<div class="notebox" style="color:var(--muted)">Logg inn med Google for å synke data til skyen og mellom enheter.</div>'+
+    '<button class="btn" onclick="window.fbSignIn && window.fbSignIn()">Logg inn med Google</button>'+
+    '<button class="btn2" onclick="openCloudSetup()">Endre Firebase-oppsett</button>';
+  }
+  return h;
+}
+function openCloudSetup(){
+  history.pushState({modal:1, v:view, d:detailId}, "");
+  const cur = localStorage.getItem("fb_config") || "";
+  $("modal").innerHTML =
+  '<div class="overlay" onclick="if(event.target===this) closeModal()"><div class="sheet">'+
+  '<h3>Firebase-oppsett</h3>'+
+  '<div class="notebox" style="color:var(--muted); margin-bottom:8px">Lim inn config-objektet fra Firebase-konsollen (Project settings → din web-app). Det ser ut som { apiKey: "…", authDomain: "…", projectId: "…", … }.</div>'+
+  '<textarea id="fb_cfg" class="mono" style="min-height:170px" placeholder=\'{ "apiKey": "...", "authDomain": "...", "projectId": "...", "appId": "..." }\'>'+esc(cur)+'</textarea>'+
+  '<button class="btn" onclick="saveCloudConfig()">Lagre og last på nytt</button>'+
+  '<button class="btn2" onclick="closeModal()">Avbryt</button>'+
+  '</div></div>';
+}
+function saveCloudConfig(){
+  let raw = $("fb_cfg").value.trim();
+  if(!raw){ toast("Lim inn config først"); return; }
+  // tillat at de limer inn "const firebaseConfig = {...};" – plukk ut {...}
+  const m = raw.match(/\{[\s\S]*\}/);
+  if(!m){ toast("Fant ikke gyldig config"); return; }
+  let obj;
+  try{
+    // tolerer JS-objekt med ufullstendige anførselstegn ved å bruke Function
+    obj = (new Function("return ("+m[0]+")"))();
+    if(!obj.apiKey || !obj.projectId) throw 0;
+  }catch(e){ toast("Ugyldig config"); return; }
+  localStorage.setItem("fb_config", JSON.stringify(obj));
+  toast("Lagret – laster på nytt");
+  setTimeout(()=>location.reload(), 700);
+}
+
 function renderBackup(){
   const nServices = DB.companies.reduce((n,c)=>n+(c.history?c.history.length:0),0);
   $("app").innerHTML =
   '<h1>Backup</h1>'+
+  cloudSection()+
+  '<h2>Status</h2>'+
   '<div class="box">'+
   '<div class="row"><span class="rlabel">Bedrifter</span><span class="rval">'+DB.companies.length+'</span></div>'+
   '<div class="row"><span class="rlabel">Registrerte besøk</span><span class="rval">'+nServices+'</span></div>'+
   '<div class="row"><span class="rlabel">Avtaler</span><span class="rval">'+DB.appointments.length+'</span></div>'+
   '<div class="row"><span class="rlabel">Notater</span><span class="rval">'+DB.memos.length+'</span></div>'+
-  '<div class="row"><span class="rlabel">Siste backup</span><span class="rval">'+(DB.lastExport?fmt(DB.lastExport.slice(0,10)):"Aldri")+'</span></div>'+
+  '<div class="row"><span class="rlabel">Siste fil-backup</span><span class="rval">'+(DB.lastExport?fmt(DB.lastExport.slice(0,10)):"Aldri")+'</span></div>'+
   '</div>'+
+  '<h2>Fil-backup</h2>'+
   '<button class="btn" onclick="exportData()">Last ned backup (fil)</button>'+
   '<button class="btn2" onclick="$(\'importfile\').click()">Importer backup</button>'+
   '<input id="importfile" type="file" accept=".json,application/json" style="display:none" onchange="importData(this)">'+
-  '<h2>Viktig</h2><div class="notebox" style="color:var(--muted)">All data lagres lokalt i nettleseren på denne telefonen. '+
-  'Sletter du nettleserdata, eller bytter telefon, forsvinner alt – ta backup jevnlig og legg fila i Google Drive eller lignende. '+
-  'Ved telefonbytte: ta backup her, åpne appen på ny telefon, og bruk Importer backup.</div>';
+  '<div class="notebox" style="color:var(--muted); margin-top:12px">Uten sky-synk lagres alt lokalt på denne telefonen. '+
+  'Ta fil-backup jevnlig og legg fila i Google Drive. Ved telefonbytte: importer fila på ny telefon.</div>';
 }
 function exportData(){
   DB.lastExport = iso(today0());
@@ -603,6 +689,66 @@ history.replaceState({v:"dash", d:null}, "");
 render();
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
+</script>
+
+<script type="module">
+/* ===== Firebase-bro: kjører kun hvis bruker har lagt inn config ===== */
+const cfgRaw = localStorage.getItem("fb_config");
+if(cfgRaw){
+  try{
+    const cfg = JSON.parse(cfgRaw);
+    const [{ initializeApp }, auth, fs] = await Promise.all([
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"),
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js")
+    ]);
+    const app = initializeApp(cfg);
+    const fbAuth = auth.getAuth(app);
+    const db = fs.initializeFirestore(app, {
+      localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() })
+    });
+    const provider = new auth.GoogleAuthProvider();
+    window.fbReady = true;
+
+    let userDocRef = null;
+    let unsub = null;
+
+    window.fbSignIn = () => auth.signInWithRedirect(fbAuth, provider);
+    window.fbSignOut = async () => {
+      if(unsub){ unsub(); unsub = null; }
+      await auth.signOut(fbAuth);
+    };
+    window.fbSave = (data) => {
+      if(userDocRef) fs.setDoc(userDocRef, { data, updated: Date.now() });
+    };
+    window.fbPushLocal = () => {
+      if(!userDocRef) return;
+      if(!confirm("Laste opp dataene på denne enheten til skyen? Dette overskriver det som ligger i skyen nå.")) return;
+      try{ const local = JSON.parse(localStorage.getItem("anleggsservice_v1")); fs.setDoc(userDocRef, { data: local, updated: Date.now() }); }catch(e){}
+    };
+
+    // håndter resultat av redirect-innlogging (svelger feil stille)
+    auth.getRedirectResult(fbAuth).catch(()=>{});
+
+    auth.onAuthStateChanged(fbAuth, (user) => {
+      if(user){
+        window.onAuthChange && window.onAuthChange({ name:user.displayName, email:user.email });
+        userDocRef = fs.doc(db, "users", user.uid);
+        if(unsub) unsub();
+        unsub = fs.onSnapshot(userDocRef, (snap) => {
+          window.onCloudData && window.onCloudData(snap.exists() ? snap.data().data : null);
+        }, (err)=>{ console.warn("snapshot-feil", err); });
+      } else {
+        window.onAuthChange && window.onAuthChange(null);
+        if(unsub){ unsub(); unsub = null; }
+        userDocRef = null;
+      }
+    });
+  }catch(e){
+    console.warn("Firebase-init feilet", e);
+    window.fbReady = false;
+  }
 }
 </script>
 </body>

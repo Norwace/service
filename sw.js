@@ -1,4 +1,4 @@
-const CACHE = "anleggsservice-v4";
+const CACHE = "anleggsservice-v5";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
@@ -11,8 +11,10 @@ self.addEventListener("activate", e => {
   self.clients.claim();
 });
 self.addEventListener("fetch", e => {
-  if(e.request.method !== "GET") return;
   const url = new URL(e.request.url);
+  // Ikke rør kryss-domene-trafikk (Firebase, Google-innlogging osv.)
+  if(url.origin !== location.origin) return;
+  if(e.request.method !== "GET") return;
   const isAppShell = e.request.mode === "navigate" ||
     url.pathname.endsWith("/") || url.pathname.endsWith("index.html");
   if(isAppShell){
