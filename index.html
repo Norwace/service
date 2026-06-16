@@ -58,6 +58,12 @@ button{font-family:inherit; cursor:pointer; border:none; border-radius:11px; fon
   width:56px; height:56px; border-radius:50%; background:var(--amber); color:#1A1408;
   font-size:30px; line-height:0; box-shadow:0 4px 14px rgba(0,0,0,.45); z-index:5}
 .empty{color:var(--muted); text-align:center; padding:42px 20px; line-height:1.5}
+.memocard{display:flex; align-items:flex-start; gap:10px}
+.grip{flex-shrink:0; width:30px; display:flex; align-items:center; justify-content:center;
+  color:var(--muted); cursor:grab; touch-action:none; align-self:stretch; margin:-14px 0 -14px -4px; padding:0 2px}
+.grip svg{width:20px; height:20px}
+.memobody{flex:1; min-width:0}
+.card.dragging{opacity:.85; border-color:var(--amber); box-shadow:0 6px 18px rgba(0,0,0,.5)}
 .banner{background:rgba(232,163,61,.12); border:1px solid rgba(232,163,61,.35); color:var(--amber);
   border-radius:11px; padding:10px 13px; font-size:13.5px; margin-bottom:12px}
 
@@ -239,8 +245,7 @@ function render(){
   if(view==="dash") renderDash();
   else if(view==="detail") renderDetail();
   else if(view==="cal") renderCal();
-  else if(view==="notes") renderNotes();
-  else if(view==="memo") renderMemo();
+  else if(view==="notes" || view==="memo") renderNotes();
   else renderBackup();
 }
 
@@ -253,7 +258,7 @@ function renderDash(){
   }
   h += '<input class="search" type="search" placeholder="Søk bedrift…" value="'+esc(searchQ)+'" oninput="searchQ=this.value; renderDashList()">';
   h += '<div id="dashlist"></div>';
-  h += '<button class="fab" onclick="openCompanyForm()" aria-label="Ny bedrift">+</button>';
+  h += '<button class="btn" onclick="openCompanyForm()">+ Legg til bedrift</button>';
   $("app").innerHTML = h;
   renderDashList();
 }
@@ -519,25 +524,58 @@ function renderNotes(){
   let h = "<h1>Notater</h1>";
   h += '<input class="search" type="search" placeholder="Søk notat…" value="'+esc(searchQ)+'" oninput="searchQ=this.value; renderMemoList()">';
   h += '<div id="memolist"></div>';
-  h += '<button class="fab" onclick="openMemoForm()" aria-label="Nytt notat">+</button>';
+  h += '<button class="btn" onclick="openMemoForm()">+ Legg til notat</button>';
   $("app").innerHTML = h;
   renderMemoList();
 }
 function renderMemoList(){
   const q = searchQ.trim().toLowerCase();
+  const searching = !!q;
   let list = DB.memos.filter(m => !q || m.title.toLowerCase().includes(q) || (m.body||"").toLowerCase().includes(q));
-  list = [...list].sort((a,b) => (b.updated||0) - (a.updated||0));
   if(!DB.memos.length){
-    $("memolist").innerHTML = '<div class="empty">Ingen notater enda.<br>Trykk + for å lage det første.</div>';
+    $("memolist").innerHTML = '<div class="empty">Ingen notater enda.<br>Bruk knappen under for å lage det første.</div>';
     return;
   }
   if(!list.length){ $("memolist").innerHTML = '<div class="empty">Ingen treff.</div>'; return; }
-  $("memolist").innerHTML = list.map(m => {
-    return '<div class="card" onclick="openMemo(\''+m.id+'\')">'+
-      '<div class="cname">'+esc(m.title)+'</div>'+
-      (m.body ? '<div class="caddr" style="white-space:pre-wrap; margin-top:6px">'+esc(m.body)+'</div>' : "")+
-    '</div>';
-  }).join("");
+  const grip = '<div class="grip" onpointerdown="memoDragStart(event)" aria-label="Dra for å endre rekkefølge"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></div>';
+  $("memolist").innerHTML = list.map(m =>
+    '<div class="card memocard" data-id="'+m.id+'">'+
+      (searching ? "" : grip)+
+      '<div class="memobody" onclick="openMemoForm(\''+m.id+'\')">'+
+        '<div class="cname">'+esc(m.title)+'</div>'+
+        (m.body ? '<div class="caddr" style="white-space:pre-wrap; margin-top:6px">'+esc(m.body)+'</div>' : "")+
+      '</div>'+
+    '</div>').join("");
+}
+/* ---- dra-rekkefølge ---- */
+let _dragEl = null;
+function memoDragStart(e){
+  e.preventDefault();
+  _dragEl = e.currentTarget.closest(".card");
+  _dragEl.classList.add("dragging");
+  e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId);
+  document.addEventListener("pointermove", memoDragMove);
+  document.addEventListener("pointerup", memoDragEnd, { once:true });
+}
+function memoDragMove(e){
+  if(!_dragEl) return;
+  const list = $("memolist");
+  const cards = [...list.querySelectorAll(".card")].filter(c => c !== _dragEl);
+  let placed = false;
+  for(const c of cards){
+    const r = c.getBoundingClientRect();
+    if(e.clientY < r.top + r.height/2){ list.insertBefore(_dragEl, c); placed = true; break; }
+  }
+  if(!placed) list.appendChild(_dragEl);
+}
+function memoDragEnd(){
+  document.removeEventListener("pointermove", memoDragMove);
+  if(!_dragEl) return;
+  _dragEl.classList.remove("dragging");
+  const ids = [...$("memolist").querySelectorAll(".card")].map(c => c.dataset.id);
+  DB.memos.sort((a,b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+  save();
+  _dragEl = null;
 }
 function openMemoForm(id){
   history.pushState({modal:1, v:view, d:detailId}, "");
@@ -546,8 +584,9 @@ function openMemoForm(id){
   '<div class="overlay" onclick="if(event.target===this) closeModal()"><div class="sheet">'+
   '<h3>'+(id?"Rediger notat":"Nytt notat")+'</h3>'+
   '<label>Tittel *</label><input id="m_title" value="'+esc(m.title||"")+'">'+
-  '<label>Innhold</label><textarea id="m_body" style="min-height:180px">'+esc(m.body||"")+'</textarea>'+
+  '<label>Innhold</label><textarea id="m_body" style="min-height:200px">'+esc(m.body||"")+'</textarea>'+
   '<button class="btn" onclick="saveMemo('+(id?'\''+id+'\'':'null')+')">Lagre</button>'+
+  (id ? '<button class="btn-danger" onclick="delMemo(\''+id+'\')">Slett notat</button>' : "")+
   '<button class="btn2" onclick="closeModal()">Avbryt</button>'+
   '</div></div>';
 }
@@ -560,25 +599,13 @@ function saveMemo(id){
   }else{
     DB.memos.push({ id:uid(), title, body, updated:Date.now() });
   }
-  save(); closeModal();
-  if(view==="memo") setView("memo", id||null); else render();
-  toast("Lagret");
-}
-function renderMemo(){
-  const m = DB.memos.find(x=>x.id===detailId);
-  if(!m){ go("notes"); return; }
-  $("app").innerHTML =
-  '<div class="topbar"><button class="back" onclick="go(\'notes\')">‹ Tilbake</button>'+
-  '<div style="flex:1"></div><button class="btn-sm" onclick="openMemoForm(\''+m.id+'\')">Rediger</button></div>'+
-  '<h1 style="margin-top:0">'+esc(m.title)+'</h1>'+
-  (m.body ? '<div class="notebox">'+esc(m.body)+'</div>' : '<div class="notebox" style="color:var(--muted)">Tomt notat. Trykk Rediger for å fylle inn.</div>')+
-  '<button class="btn-danger" onclick="delMemo(\''+m.id+'\')">Slett notat</button>';
+  save(); closeModal(); render(); toast("Lagret");
 }
 function delMemo(id){
   const m = DB.memos.find(x=>x.id===id);
   if(!confirm('Slette notatet "'+m.title+'"? Dette kan ikke angres.')) return;
   DB.memos = DB.memos.filter(x=>x.id!==id);
-  save(); go("notes"); toast("Notat slettet");
+  save(); closeModal(); go("notes"); toast("Notat slettet");
 }
 
 /* ================= backup ================= */
