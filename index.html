@@ -12,7 +12,7 @@
 :root{
   --bg:#16181D; --surface:#1F232B; --surface2:#272C36; --line:#2E3440;
   --text:#E9ECF1; --muted:#97A0AD;
-  --amber:#E8A33D; --green:#46B873; --red:#E0584F; --blue:#5B8DEF;
+  --amber:#E8A33D; --green:#46B873; --red:#E0584F; --blue:#5B8DEF; --purple:#BFA4F0;
   --r:14px;
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
@@ -29,8 +29,13 @@ h2{font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.8p
   padding:14px; margin-bottom:10px; cursor:pointer}
 .card:active{background:var(--surface2)}
 .cardtop{display:flex; justify-content:space-between; align-items:baseline; gap:10px}
-.cname{font-weight:700; font-size:17px}
+.cname{font-weight:700; font-size:17px; margin-bottom:5px}
 .caddr{color:var(--muted); font-size:13px; margin-top:2px}
+.cdiv{height:1px; background:var(--line); margin:7px 0 5px; opacity:.8}
+.cmeta{margin-top:7px}
+.cgroup{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--text); margin-bottom:3px}
+.c-rens{color:var(--purple)}
+.c-svc{color:var(--amber)}
 .pill{font-size:12px; font-weight:700; padding:3px 9px; border-radius:99px; white-space:nowrap; flex-shrink:0}
 .p-ok{background:rgba(70,184,115,.15); color:var(--green)}
 .p-warn{background:rgba(232,163,61,.15); color:var(--amber)}
@@ -38,7 +43,7 @@ h2{font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.8p
 .p-none{background:rgba(151,160,173,.15); color:var(--muted)}
 .p-call{background:rgba(91,141,239,.15); color:var(--blue)}
 .rensbadge{display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:99px;
-  background:rgba(70,184,115,.15); color:var(--green); margin-left:6px; vertical-align:middle}
+  background:rgba(191,164,240,.16); color:var(--purple); margin-left:6px; vertical-align:middle}
 .checkrow{display:flex; align-items:center; gap:12px; margin-top:14px; padding:13px 14px;
   background:var(--surface2); border:1px solid var(--line); border-radius:10px; cursor:pointer; user-select:none}
 .checkrow input{width:22px; height:22px; margin:0; flex-shrink:0; accent-color:var(--green)}
@@ -155,7 +160,7 @@ a.link{color:var(--amber); text-decoration:none; font-weight:600}
 "use strict";
 /* ================= data ================= */
 const KEY = "anleggsservice_v1";
-const SERVICE_TASKS = ["Brixe","Pumpe","Kompressor","Regulator","Kraner","WWB","KeyKeg","Kjøler"];
+const SERVICE_TASKS = ["Brixe","Pumpe","Kompressor","Regulator","Kraner","WWB","KeyKeg","Kjøler","Tappeblokk"];
 let DB = load();
 function load(){
   try{
@@ -205,7 +210,10 @@ function today0(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
 function iso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function fromIso(s){ const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); }
 function fmt(s){ if(!s) return ""; const [y,m,d] = s.split("-"); return d+"."+m+"."+y; }
+function fmtShort(s){ if(!s) return ""; const [y,m,d] = s.split("-"); return d+"."+m; }
 const MND = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
+const DAGER = ["Søndag","Mandag","Tirsdag","Onsdag","Torsdag","Fredag","Lørdag"];
+function ukedag(s){ return DAGER[fromIso(s).getDay()]; }
 
 function lastRensDate(c){
   if(!c.history) return null;
@@ -219,6 +227,24 @@ function lastServiceOnlyDate(c){
 }
 function rensOn(c){ return c.rensEnabled !== undefined ? !!c.rensEnabled : (c.intervalWeeks>0); }
 function status(c){
+  const today = today0();
+  // Planlagt rens overstyrer nedtellingen – tell ned til den planlagte datoen
+  const plan = DB.appointments
+    .filter(a => a.companyId === c.id && a.rens && a.date >= iso(today))
+    .map(a => a.date).sort();
+  if(plan.length){
+    const nextIso = plan[0];
+    const next = fromIso(nextIso);
+    const days = Math.round((next - today) / 86400000);
+    const lastRens = lastRensDate(c);
+    let total = lastRens ? Math.round((next - fromIso(lastRens)) / 86400000)
+                         : (c.intervalWeeks > 0 ? c.intervalWeeks*7 : days);
+    total = Math.max(total, 1);
+    const pct = Math.max(2, Math.min(100, ((total-days)/total)*100));
+    if(days === 0) return { key:"over", label:"Forfaller i dag", days, pct:100, sort:0, next:nextIso, planned:true };
+    if(days <= 7) return { key:"warn", label:"Om "+days+(days===1?" dag":" dager"), days, pct, sort:days, next:nextIso, planned:true };
+    return { key:"ok", label:"Om "+days+" dager", days, pct, sort:days, next:nextIso, planned:true };
+  }
   // Ingen fast rens → ingen nedtelling, ingen pill
   if(!rensOn(c) || !c.intervalWeeks || c.intervalWeeks <= 0){
     return { key:"none", label:"", days:0, pct:0, sort:9e9 };
@@ -298,16 +324,32 @@ function renderDashList(){
     return;
   }
   if(!list.length){ $("dashlist").innerHTML = '<div class="empty">Ingen treff.</div>'; return; }
+  const todayIso = iso(today0());
   $("dashlist").innerHTML = list.map(({c,s}) => {
     const rensDate = lastRensDate(c);
     const svcDate = lastServiceOnlyDate(c);
-    let lines = "";
-    if(rensDate) lines += '<div class="caddr">Renset: ' + fmt(rensDate) + '</div>';
-    if(svcDate)  lines += '<div class="caddr">Service: ' + fmt(svcDate) + '</div>';
-    const pill = (s.key !== "none") ? '<span class="pill p-'+s.key+'">'+s.label+'</span>' : "";
+    let histLines = "";
+    if(rensDate) histLines += '<div class="caddr"><span class="c-rens">Renset:</span> ' + fmt(rensDate) + '</div>';
+    if(svcDate)  histLines += '<div class="caddr"><span class="c-svc">Service:</span> ' + fmt(svcDate) + '</div>';
+    const upcoming = DB.appointments
+      .filter(a => a.companyId === c.id && a.date >= todayIso)
+      .sort((a,b) => a.date.localeCompare(b.date) || (a.time||"").localeCompare(b.time||""));
+    const nextRens = upcoming.find(a => a.rens);
+    const nextSvc  = upcoming.find(a => !a.rens);
+    let planLines = "";
+    if(nextRens){ const t = nextRens.time ? ' - '+esc(nextRens.time) : '';
+      planLines += '<div class="caddr"><span class="c-rens">Rens:</span> ' + ukedag(nextRens.date) + ' - ' + fmtShort(nextRens.date) + t + '</div>'; }
+    if(nextSvc){ const t = nextSvc.time ? ' - '+esc(nextSvc.time) : '';
+      planLines += '<div class="caddr"><span class="c-svc">' + esc(nextSvc.title||"Service") + ':</span> ' + ukedag(nextSvc.date) + ' - ' + fmtShort(nextSvc.date) + t + '</div>'; }
+    const planBlock = planLines ? '<div class="cgroup">Planlagt</div>' + planLines : "";
+    const histBlock = histLines ? '<div class="cgroup">Sist utført</div>' + histLines : "";
+    const divider = (planBlock && histBlock) ? '<div class="cdiv"></div>' : "";
+    const lines = planBlock + divider + histBlock;
+    const plabel = s.label ? 'Rens ' + s.label.charAt(0).toLowerCase() + s.label.slice(1) : "";
+    const pill = (s.key !== "none") ? '<span class="pill p-'+s.key+'">'+plabel+'</span>' : "";
     const gauge = (s.key !== "none") ? '<div class="gauge"><div class="g-'+s.key+'" style="width:'+s.pct+'%"></div></div>' : "";
     return '<div class="card" onclick="openDetail(\''+c.id+'\')">'+
-      '<div class="cardtop"><div><div class="cname">'+esc(c.name)+'</div>'+lines+'</div>'+
+      '<div class="cardtop"><div><div class="cname">'+esc(c.name)+'</div>'+(lines?'<div class="cmeta">'+lines+'</div>':"")+'</div>'+
       pill+'</div>'+ gauge +
     '</div>';
   }).join("");
@@ -378,13 +420,26 @@ function renderDetail(){
     (rensOn(c) ? '<div class="row"><span class="rlabel">Rens-intervall</span><span class="rval">Hver '+c.intervalWeeks+'. uke</span></div>' : "")+
     '<div class="row"><span class="rlabel">Renset</span><span class="rval">'+(lastRensDate(c)?fmt(lastRensDate(c)):"–")+'</span></div>'+
     '<div class="row"><span class="rlabel">Service</span><span class="rval">'+(lastServiceOnlyDate(c)?fmt(lastServiceOnlyDate(c)):"–")+'</span></div>'+
-    (rensOn(c)
+    ((rensOn(c) || s.planned)
       ? (s.key==="none"
          ? '<div class="row"><span class="rlabel">Neste rens</span><span class="rval">–</span></div>'
          : '<div class="row"><span class="rlabel">Neste rens</span><span class="rval"><span class="pill p-'+s.key+'">'+(s.next?fmt(s.next)+" · ":"")+s.label+'</span></span></div>')
       : "")+
   '</div>'+
-  '<button class="btn" onclick="openServiceForm(\''+c.id+'\')">Registrer service</button>';
+  '<button class="btn" onclick="openServiceForm(\''+c.id+'\')">Registrer service</button>'+
+  '<button class="btn2" onclick="openPlanForm(\''+c.id+'\')">Planlegg service</button>';
+
+  const planned = DB.appointments
+    .filter(a => a.companyId === c.id && a.date >= iso(today0()))
+    .sort((a,b) => a.date.localeCompare(b.date) || (a.time||"").localeCompare(b.time||""));
+  if(planned.length){
+    h += '<h2>Planlagt service</h2><div class="box">' + planned.map(a =>
+      '<div class="hist" style="cursor:pointer" onclick="openPlanForm(\''+c.id+'\',\''+a.id+'\')">'+
+        '<div class="hdate"><span style="color:var(--blue)">'+esc(a.title||"Service")+'</span> – '+fmt(a.date)+(a.time?' · '+esc(a.time):'')+'</div>'+
+        (a.note ? '<div class="hnote">'+esc(a.note)+'</div>' : '<div class="hnote" style="opacity:.6">Trykk for å redigere</div>')+
+      '</div>'
+    ).join("") + '</div>';
+  }
 
   h += '<h2>Notater</h2>'+sectionBox(c.id, "notes", c.notes, "Trykk for å legge til notat", false);
   h += '<h2>Tilgang</h2>'+sectionBox(c.id, "access", c.access, "Trykk for å legge til tilgangsinfo", true);
@@ -394,10 +449,9 @@ function renderDetail(){
   if(c.history && c.history.length){
     const hist = [...c.history].sort((a,b) => b.date.localeCompare(a.date));
     h += '<div class="box">' + hist.map(e =>
-      '<div class="hist"><div class="hrow"><div style="flex:1; cursor:pointer" onclick="openServiceForm(\''+c.id+'\',\''+e.id+'\')"><div class="hdate">'+(e.rens?'<span style="color:var(--green)">Rens</span>':'<span style="color:var(--amber)">Service</span>')+' – '+fmt(e.date)+'</div>'+
+      '<div class="hist" style="cursor:pointer" onclick="openServiceForm(\''+c.id+'\',\''+e.id+'\')"><div class="hdate">'+(e.rens?'<span style="color:var(--purple)">Rens</span>':'<span style="color:var(--amber)">Service</span>')+' – '+fmt(e.date)+'</div>'+
       (e.tasks && e.tasks.length ? '<div class="hnote" style="color:var(--blue)">'+esc(e.tasks.join(", "))+'</div>' : "")+
-      (e.note ? '<div class="hnote">'+esc(e.note)+'</div>' : (!(e.tasks&&e.tasks.length) ? '<div class="hnote" style="opacity:.6">Trykk for å redigere</div>' : ""))+'</div>'+
-      '<button class="del" onclick="delHistory(\''+c.id+'\',\''+e.id+'\')" aria-label="Slett">✕</button></div></div>').join("") + '</div>';
+      (e.note ? '<div class="hnote">'+esc(e.note)+'</div>' : (!(e.tasks&&e.tasks.length) ? '<div class="hnote" style="opacity:.6">Trykk for å redigere</div>' : ""))+'</div>').join("") + '</div>';
   } else {
     h += '<div class="notebox" style="color:var(--muted)">Ingen besøk registrert enda.</div>';
   }
@@ -436,17 +490,18 @@ function openServiceForm(id, histId){
   const c = DB.companies.find(x=>x.id===id);
   const e = histId ? (c.history||[]).find(x=>x.id===histId) : null;
   const done = (e && e.tasks) ? e.tasks : [];
-  const tasksHtml = SERVICE_TASKS.map(t =>
+  const rensCell = '<label class="checkrow"><input type="checkbox" id="s_rens"'+(e&&e.rens?" checked":"")+'><span>Rens</span></label>';
+  const tasksHtml = rensCell + SERVICE_TASKS.map(t =>
     '<label class="checkrow"><input type="checkbox" class="taskcheck" data-task="'+t+'"'+(done.includes(t)?" checked":"")+'><span>'+t+'</span></label>'
   ).join("");
   $("modal").innerHTML =
   '<div class="overlay" onclick="if(event.target===this) closeModal()"><div class="sheet">'+
   '<h3>'+(e?"Rediger besøk":"Registrer service")+'</h3>'+
   '<label>Dato</label><input id="s_date" type="date" value="'+(e?e.date:iso(today0()))+'">'+
-  '<label class="checkrow"><input type="checkbox" id="s_rens"'+(e&&e.rens?" checked":"")+'><span>Rens utført</span></label>'+
   '<label style="margin-top:14px">Utført</label><div class="taskgrid">'+tasksHtml+'</div>'+
   '<label>Notat (hva ble gjort)</label><textarea id="s_note" placeholder="F.eks. byttet pakning kran 2…">'+(e?esc(e.note):"")+'</textarea>'+
   '<button class="btn" onclick="saveService(\''+id+'\','+(histId?'\''+histId+'\'':'null')+')">'+(e?"Lagre endring":"Lagre besøk")+'</button>'+
+  (e ? '<button class="btn-danger" onclick="delHistory(\''+id+'\',\''+histId+'\')">Slett besøk</button>' : "")+
   '<button class="btn2" onclick="closeModal()">Avbryt</button>'+
   '</div></div>';
 }
@@ -466,13 +521,46 @@ function saveService(id, histId){
   c.lastService = c.history.map(e=>e.date).sort().pop() || null;
   save(); closeModal(); render(); toast(histId?"Besøk oppdatert":"Service registrert");
 }
+function openPlanForm(id, apptId){
+  history.pushState({modal:1, v:view, d:detailId}, "");
+  const c = DB.companies.find(x=>x.id===id);
+  const a = apptId ? DB.appointments.find(x=>x.id===apptId) : null;
+  $("modal").innerHTML =
+  '<div class="overlay" onclick="if(event.target===this) closeModal()"><div class="sheet">'+
+  '<h3>'+(a?"Rediger planlagt":"Planlegg service")+' · '+esc(c.name)+'</h3>'+
+  '<label>Dato</label><input id="p_date" type="date" value="'+(a?a.date:iso(today0()))+'">'+
+  '<label>Klokkeslett (valgfritt)</label><input id="p_time" type="time" value="'+(a&&a.time?esc(a.time):"")+'">'+
+  '<label class="checkrow"><input type="checkbox" id="p_rens"'+(a&&a.rens?" checked":"")+'><span>Rens (overstyrer nedtellingen)</span></label>'+
+  '<label>Hva skal gjøres (valgfritt)</label><textarea id="p_note" placeholder="F.eks. rens + bytte pakning kran 2…">'+(a?esc(a.note):"")+'</textarea>'+
+  '<button class="btn" onclick="savePlan(\''+id+'\','+(apptId?'\''+apptId+'\'':'null')+')">'+(a?"Lagre endring":"Legg i kalender")+'</button>'+
+  (a ? '<button class="btn-danger" onclick="delAppt(\''+apptId+'\')">Slett planlagt</button>' : "")+
+  '<button class="btn2" onclick="closeModal()">Avbryt</button>'+
+  '</div></div>';
+}
+function savePlan(id, apptId){
+  const date = $("p_date").value;
+  if(!date){ toast("Velg dato"); return; }
+  const isRens = $("p_rens").checked;
+  if(apptId){
+    const a = DB.appointments.find(x=>x.id===apptId);
+    const wasStd = a.title==="Service" || a.title==="Rens";
+    a.date = date; a.time = $("p_time").value||""; a.note = $("p_note").value.trim(); a.rens = isRens;
+    if(wasStd) a.title = isRens ? "Rens" : "Service";
+  }else{
+    DB.appointments.push({ id:uid(), date, time:$("p_time").value||"",
+      title: isRens ? "Rens" : "Service", note:$("p_note").value.trim(), companyId:id, rens:isRens });
+  }
+  save(); closeModal();
+  calSel = date; calMonth = fromIso(date); calMonth.setDate(1);
+  toast(apptId ? "Planlagt oppdatert" : (isRens ? "Rens planlagt" : "Service planlagt"));
+}
 function delHistory(cid, hid){
   if(!confirm("Slette dette besøket fra historikken?")) return;
   const c = DB.companies.find(x=>x.id===cid);
   c.history = c.history.filter(e=>e.id!==hid);
   const latest = c.history.map(e=>e.date).sort().pop() || null;
   c.lastService = latest;
-  save(); render();
+  save(); closeModal(); render(); toast("Besøk slettet");
 }
 function delCompany(id){
   const c = DB.companies.find(x=>x.id===id);
@@ -532,43 +620,59 @@ function renderCal(){
   });
   selAppts.forEach(a => {
     const comp = a.companyId ? DB.companies.find(x=>x.id===a.companyId) : null;
-    const label = (comp ? esc(comp.name)+" – " : "") + esc(a.title) + (a.time ? " · "+a.time : "");
+    const prefix = comp ? esc(comp.name)+" – " : "";
+    const t = (a.title||"").toLowerCase();
+    const tcol = t==="rens" ? "var(--purple)" : (t==="service" ? "var(--amber)" : "");
+    const titleHtml = tcol ? '<span style="color:'+tcol+'">'+esc(a.title)+'</span>' : esc(a.title);
+    const suffix = a.time ? " · "+esc(a.time) : "";
+    const edit = a.companyId ? 'openPlanForm(\''+a.companyId+'\',\''+a.id+'\')' : 'openApptForm(\''+a.id+'\')';
     h += '<div class="agitem"><span class="agdot" style="background:var(--blue)"></span>'+
-    '<div class="agbody"><div class="agtitle">'+label+'</div>'+
-    (a.note?'<div class="agsub">'+esc(a.note)+'</div>':"")+'</div>'+
-    '<button class="del" onclick="delAppt(\''+a.id+'\')" aria-label="Slett">✕</button></div>';
+    '<div class="agbody" style="cursor:pointer" onclick="'+edit+'"><div class="agtitle">'+prefix+titleHtml+suffix+'</div>'+
+    (a.note?'<div class="agsub">'+esc(a.note)+'</div>':"")+'</div></div>';
   });
   h += '</div><button class="btn" onclick="openApptForm()">+ Ny avtale '+fmt(calSel)+'</button>';
   $("app").innerHTML = h;
 }
 function calNav(dir){ calMonth.setMonth(calMonth.getMonth()+dir); renderCal(); }
 function calPick(di){ calSel = di; renderCal(); }
-function openApptForm(){
+function openApptForm(apptId){
   history.pushState({modal:1, v:view, d:detailId}, "");
-  const opts = DB.companies.map(c=>'<option value="'+c.id+'">'+esc(c.name)+'</option>').join("");
+  const a = apptId ? DB.appointments.find(x=>x.id===apptId) : null;
+  const opts = DB.companies.map(c=>'<option value="'+c.id+'"'+(a&&a.companyId===c.id?" selected":"")+'>'+esc(c.name)+'</option>').join("");
   $("modal").innerHTML =
   '<div class="overlay" onclick="if(event.target===this) closeModal()"><div class="sheet">'+
-  '<h3>Ny avtale · '+fmt(calSel)+'</h3>'+
+  '<h3>'+(a?"Rediger avtale":"Ny avtale · "+fmt(calSel))+'</h3>'+
+  '<label>Dato</label><input id="a_date" type="date" value="'+(a?a.date:calSel)+'">'+
   '<label>Bedrift (valgfritt)</label><select id="a_comp"><option value="">– Ingen –</option>'+opts+'</select>'+
-  '<label>Tittel *</label><input id="a_title" placeholder="F.eks. Service, levering, befaring…">'+
-  '<label>Klokkeslett (valgfritt)</label><input id="a_time" type="time">'+
-  '<label>Notat</label><textarea id="a_note"></textarea>'+
-  '<button class="btn" onclick="saveAppt()">Lagre avtale</button>'+
+  '<label>Tittel *</label><input id="a_title" value="'+(a?esc(a.title):"")+'" placeholder="F.eks. Service, levering, befaring…">'+
+  '<label>Klokkeslett (valgfritt)</label><input id="a_time" type="time" value="'+(a&&a.time?esc(a.time):"")+'">'+
+  '<label>Notat</label><textarea id="a_note">'+(a?esc(a.note):"")+'</textarea>'+
+  '<button class="btn" onclick="saveAppt('+(apptId?'\''+apptId+'\'':'null')+')">'+(a?"Lagre endring":"Lagre avtale")+'</button>'+
+  (a ? '<button class="btn-danger" onclick="delAppt(\''+apptId+'\')">Slett avtale</button>' : "")+
   '<button class="btn2" onclick="closeModal()">Avbryt</button>'+
   '</div></div>';
 }
-function saveAppt(){
+function saveAppt(apptId){
   const title = $("a_title").value.trim();
   if(!title){ toast("Tittel må fylles inn"); return; }
+  const date = $("a_date").value;
+  if(!date){ toast("Velg dato"); return; }
   const cid = $("a_comp").value || null;
-  DB.appointments.push({ id:uid(), date:calSel, time:$("a_time").value||"",
-    title, note:$("a_note").value.trim(), companyId:cid });
-  save(); closeModal(); renderCal(); toast("Avtale lagret");
+  if(apptId){
+    const a = DB.appointments.find(x=>x.id===apptId);
+    a.date = date; a.time = $("a_time").value||""; a.title = title; a.note = $("a_note").value.trim(); a.companyId = cid;
+  }else{
+    DB.appointments.push({ id:uid(), date, time:$("a_time").value||"",
+      title, note:$("a_note").value.trim(), companyId:cid });
+  }
+  save(); closeModal();
+  calSel = date; calMonth = fromIso(date); calMonth.setDate(1);
+  render(); toast(apptId?"Avtale oppdatert":"Avtale lagret");
 }
 function delAppt(id){
   if(!confirm("Slette avtalen?")) return;
   DB.appointments = DB.appointments.filter(a=>a.id!==id);
-  save(); renderCal();
+  save(); closeModal(); render(); toast("Avtale slettet");
 }
 
 /* ================= notater (memos) ================= */
