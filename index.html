@@ -36,6 +36,16 @@ h2{font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.8p
 .p-warn{background:rgba(232,163,61,.15); color:var(--amber)}
 .p-over{background:rgba(224,88,79,.18); color:var(--red)}
 .p-none{background:rgba(151,160,173,.15); color:var(--muted)}
+.p-call{background:rgba(91,141,239,.15); color:var(--blue)}
+.rensbadge{display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:99px;
+  background:rgba(70,184,115,.15); color:var(--green); margin-left:6px; vertical-align:middle}
+.checkrow{display:flex; align-items:center; gap:12px; margin-top:14px; padding:13px 14px;
+  background:var(--surface2); border:1px solid var(--line); border-radius:10px; cursor:pointer; user-select:none}
+.checkrow input{width:22px; height:22px; margin:0; flex-shrink:0; accent-color:var(--green)}
+.checkrow span{font-size:15px; font-weight:600}
+.taskgrid{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px}
+.taskgrid .checkrow{margin-top:0; padding:11px 12px}
+.taskgrid .checkrow span{font-size:14px}
 .gauge{height:6px; background:var(--surface2); border-radius:99px; margin-top:11px; overflow:hidden}
 .gauge>div{height:100%; border-radius:99px; transition:width .3s}
 .g-ok{background:var(--green)} .g-warn{background:var(--amber)} .g-over{background:var(--red)} .g-none{background:var(--line)}
@@ -145,6 +155,7 @@ a.link{color:var(--amber); text-decoration:none; font-weight:600}
 "use strict";
 /* ================= data ================= */
 const KEY = "anleggsservice_v1";
+const SERVICE_TASKS = ["Brixe","Pumpe","Kompressor","Regulator","Kraner","WWB","KeyKeg","Kjøler"];
 let DB = load();
 function load(){
   try{
@@ -196,9 +207,25 @@ function fromIso(s){ const [y,m,d] = s.split("-").map(Number); return new Date(y
 function fmt(s){ if(!s) return ""; const [y,m,d] = s.split("-"); return d+"."+m+"."+y; }
 const MND = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
 
+function lastRensDate(c){
+  if(!c.history) return null;
+  const r = c.history.filter(e=>e.rens).map(e=>e.date).sort();
+  return r.length ? r[r.length-1] : null;
+}
+function lastServiceOnlyDate(c){
+  if(!c.history) return null;
+  const r = c.history.filter(e=>!e.rens).map(e=>e.date).sort();
+  return r.length ? r[r.length-1] : null;
+}
+function rensOn(c){ return c.rensEnabled !== undefined ? !!c.rensEnabled : (c.intervalWeeks>0); }
 function status(c){
-  if(!c.lastService) return { key:"none", label:"Ingen service registrert", days:0, pct:0, sort:-0.5 };
-  const next = fromIso(c.lastService); next.setDate(next.getDate() + c.intervalWeeks*7);
+  // Ingen fast rens → ingen nedtelling, ingen pill
+  if(!rensOn(c) || !c.intervalWeeks || c.intervalWeeks <= 0){
+    return { key:"none", label:"", days:0, pct:0, sort:9e9 };
+  }
+  const lastRens = lastRensDate(c);
+  if(!lastRens) return { key:"none", label:"", days:0, pct:0, sort:-0.5 };
+  const next = fromIso(lastRens); next.setDate(next.getDate() + c.intervalWeeks*7);
   const days = Math.round((next - today0()) / 86400000);
   const total = c.intervalWeeks*7;
   const pct = Math.max(2, Math.min(100, ((total-days)/total)*100));
@@ -271,13 +298,19 @@ function renderDashList(){
     return;
   }
   if(!list.length){ $("dashlist").innerHTML = '<div class="empty">Ingen treff.</div>'; return; }
-  $("dashlist").innerHTML = list.map(({c,s}) =>
-    '<div class="card" onclick="openDetail(\''+c.id+'\')">'+
-      '<div class="cardtop"><div><div class="cname">'+esc(c.name)+'</div>'+
-      '<div class="caddr">Siste service: '+(c.lastService?fmt(c.lastService):"–")+'</div></div>'+
-      '<span class="pill p-'+s.key+'">'+s.label+'</span></div>'+
-      '<div class="gauge"><div class="g-'+s.key+'" style="width:'+s.pct+'%"></div></div>'+
-    '</div>').join("");
+  $("dashlist").innerHTML = list.map(({c,s}) => {
+    const rensDate = lastRensDate(c);
+    const svcDate = lastServiceOnlyDate(c);
+    let lines = "";
+    if(rensDate) lines += '<div class="caddr">Renset: ' + fmt(rensDate) + '</div>';
+    if(svcDate)  lines += '<div class="caddr">Service: ' + fmt(svcDate) + '</div>';
+    const pill = (s.key !== "none") ? '<span class="pill p-'+s.key+'">'+s.label+'</span>' : "";
+    const gauge = (s.key !== "none") ? '<div class="gauge"><div class="g-'+s.key+'" style="width:'+s.pct+'%"></div></div>' : "";
+    return '<div class="card" onclick="openDetail(\''+c.id+'\')">'+
+      '<div class="cardtop"><div><div class="cname">'+esc(c.name)+'</div>'+lines+'</div>'+
+      pill+'</div>'+ gauge +
+    '</div>';
+  }).join("");
 }
 
 /* ================= company form (new/edit) ================= */
@@ -291,7 +324,10 @@ function openCompanyForm(id){
   '<label>Adresse</label><input id="f_addr" value="'+esc(c.address||"")+'">'+
   '<label>Kontaktperson</label><input id="f_contact" value="'+esc(c.contact||"")+'">'+
   '<label>Telefon</label><input id="f_phone" type="tel" value="'+esc(c.phone||"")+'">'+
-  '<label>Serviceintervall (uker)</label><input id="f_int" type="number" min="1" max="52" value="'+(c.intervalWeeks||6)+'">'+
+  '<label class="checkrow"><input type="checkbox" id="f_rens" '+(rensOn(c)?"checked":"")+' onchange="document.getElementById(\'intwrap\').style.display=this.checked?\'block\':\'none\'"><span>Skal renses på fast intervall</span></label>'+
+  '<div id="intwrap" style="display:'+(rensOn(c)?"block":"none")+'">'+
+  '<label>Rens-intervall (uker)</label><input id="f_int" type="number" min="1" max="52" value="'+(c.intervalWeeks||6)+'">'+
+  '</div>'+
   '<label>Siste service (valgfritt)</label><input id="f_last" type="date" value="'+(c.lastService||"")+'">'+
   '<label>Notater</label><textarea id="f_notes">'+esc(c.notes||"")+'</textarea>'+
   '<label>Tilgang (koder, nøkkel, åpningstid)</label><textarea id="f_access" class="mono">'+esc(c.access||"")+'</textarea>'+
@@ -304,10 +340,12 @@ function openCompanyForm(id){
 function saveCompany(id){
   const name = $("f_name").value.trim();
   if(!name){ toast("Navn må fylles inn"); return; }
+  const rensEnabled = $("f_rens").checked;
   const data = {
     name, address:$("f_addr").value.trim(), contact:$("f_contact").value.trim(),
     phone:$("f_phone").value.trim(),
-    intervalWeeks: Math.max(1, parseInt($("f_int").value)||6),
+    rensEnabled,
+    intervalWeeks: rensEnabled ? Math.max(1, Math.min(52, parseInt($("f_int").value)||6)) : 0,
     lastService: $("f_last").value || null,
     equipment:$("f_equip").value.trim(), access:$("f_access").value.trim(), notes:$("f_notes").value.trim()
   };
@@ -337,9 +375,14 @@ function renderDetail(){
     (c.address ? '<div class="row"><span class="rlabel">Adresse</span><span class="rval"><a class="link" href="'+mapsUrl+'" target="_blank" rel="noopener">'+esc(c.address)+'</a></span></div>' : "")+
     (c.contact ? '<div class="row"><span class="rlabel">Kontakt</span><span class="rval">'+esc(c.contact)+'</span></div>' : "")+
     (c.phone ? '<div class="row"><span class="rlabel">Telefon</span><span class="rval"><a class="link" href="tel:'+esc(c.phone)+'">'+esc(c.phone)+'</a></span></div>' : "")+
-    '<div class="row"><span class="rlabel">Intervall</span><span class="rval">Hver '+c.intervalWeeks+'. uke</span></div>'+
-    '<div class="row"><span class="rlabel">Siste service</span><span class="rval">'+(c.lastService?fmt(c.lastService):"–")+'</span></div>'+
-    '<div class="row"><span class="rlabel">Neste service</span><span class="rval"><span class="pill p-'+s.key+'">'+(s.next?fmt(s.next)+" · ":"")+s.label+'</span></span></div>'+
+    (rensOn(c) ? '<div class="row"><span class="rlabel">Rens-intervall</span><span class="rval">Hver '+c.intervalWeeks+'. uke</span></div>' : "")+
+    '<div class="row"><span class="rlabel">Renset</span><span class="rval">'+(lastRensDate(c)?fmt(lastRensDate(c)):"–")+'</span></div>'+
+    '<div class="row"><span class="rlabel">Service</span><span class="rval">'+(lastServiceOnlyDate(c)?fmt(lastServiceOnlyDate(c)):"–")+'</span></div>'+
+    (rensOn(c)
+      ? (s.key==="none"
+         ? '<div class="row"><span class="rlabel">Neste rens</span><span class="rval">–</span></div>'
+         : '<div class="row"><span class="rlabel">Neste rens</span><span class="rval"><span class="pill p-'+s.key+'">'+(s.next?fmt(s.next)+" · ":"")+s.label+'</span></span></div>')
+      : "")+
   '</div>'+
   '<button class="btn" onclick="openServiceForm(\''+c.id+'\')">Registrer service</button>';
 
@@ -351,8 +394,9 @@ function renderDetail(){
   if(c.history && c.history.length){
     const hist = [...c.history].sort((a,b) => b.date.localeCompare(a.date));
     h += '<div class="box">' + hist.map(e =>
-      '<div class="hist"><div class="hrow"><div style="flex:1; cursor:pointer" onclick="openServiceForm(\''+c.id+'\',\''+e.id+'\')"><div class="hdate">'+fmt(e.date)+'</div>'+
-      (e.note ? '<div class="hnote">'+esc(e.note)+'</div>' : '<div class="hnote" style="opacity:.6">Trykk for å redigere</div>')+'</div>'+
+      '<div class="hist"><div class="hrow"><div style="flex:1; cursor:pointer" onclick="openServiceForm(\''+c.id+'\',\''+e.id+'\')"><div class="hdate">'+(e.rens?'<span style="color:var(--green)">Rens</span>':'<span style="color:var(--amber)">Service</span>')+' – '+fmt(e.date)+'</div>'+
+      (e.tasks && e.tasks.length ? '<div class="hnote" style="color:var(--blue)">'+esc(e.tasks.join(", "))+'</div>' : "")+
+      (e.note ? '<div class="hnote">'+esc(e.note)+'</div>' : (!(e.tasks&&e.tasks.length) ? '<div class="hnote" style="opacity:.6">Trykk for å redigere</div>' : ""))+'</div>'+
       '<button class="del" onclick="delHistory(\''+c.id+'\',\''+e.id+'\')" aria-label="Slett">✕</button></div></div>').join("") + '</div>';
   } else {
     h += '<div class="notebox" style="color:var(--muted)">Ingen besøk registrert enda.</div>';
@@ -391,11 +435,17 @@ function openServiceForm(id, histId){
   history.pushState({modal:1, v:view, d:detailId}, "");
   const c = DB.companies.find(x=>x.id===id);
   const e = histId ? (c.history||[]).find(x=>x.id===histId) : null;
+  const done = (e && e.tasks) ? e.tasks : [];
+  const tasksHtml = SERVICE_TASKS.map(t =>
+    '<label class="checkrow"><input type="checkbox" class="taskcheck" data-task="'+t+'"'+(done.includes(t)?" checked":"")+'><span>'+t+'</span></label>'
+  ).join("");
   $("modal").innerHTML =
   '<div class="overlay" onclick="if(event.target===this) closeModal()"><div class="sheet">'+
   '<h3>'+(e?"Rediger besøk":"Registrer service")+'</h3>'+
   '<label>Dato</label><input id="s_date" type="date" value="'+(e?e.date:iso(today0()))+'">'+
-  '<label>Notat (hva ble gjort)</label><textarea id="s_note" placeholder="F.eks. rens av linjer, byttet pakning kran 2…">'+(e?esc(e.note):"")+'</textarea>'+
+  '<label class="checkrow"><input type="checkbox" id="s_rens"'+(e&&e.rens?" checked":"")+'><span>Rens utført</span></label>'+
+  '<label style="margin-top:14px">Utført</label><div class="taskgrid">'+tasksHtml+'</div>'+
+  '<label>Notat (hva ble gjort)</label><textarea id="s_note" placeholder="F.eks. byttet pakning kran 2…">'+(e?esc(e.note):"")+'</textarea>'+
   '<button class="btn" onclick="saveService(\''+id+'\','+(histId?'\''+histId+'\'':'null')+')">'+(e?"Lagre endring":"Lagre besøk")+'</button>'+
   '<button class="btn2" onclick="closeModal()">Avbryt</button>'+
   '</div></div>';
@@ -405,11 +455,13 @@ function saveService(id, histId){
   const date = $("s_date").value;
   if(!date){ toast("Velg dato"); return; }
   c.history = c.history || [];
+  const rens = $("s_rens").checked;
+  const tasks = [...document.querySelectorAll(".taskcheck:checked")].map(x => x.dataset.task);
   if(histId){
     const e = c.history.find(x=>x.id===histId);
-    e.date = date; e.note = $("s_note").value.trim();
+    e.date = date; e.note = $("s_note").value.trim(); e.rens = rens; e.tasks = tasks;
   }else{
-    c.history.push({ id:uid(), date, note:$("s_note").value.trim() });
+    c.history.push({ id:uid(), date, note:$("s_note").value.trim(), rens, tasks });
   }
   c.lastService = c.history.map(e=>e.date).sort().pop() || null;
   save(); closeModal(); render(); toast(histId?"Besøk oppdatert":"Service registrert");
