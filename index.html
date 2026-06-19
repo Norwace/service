@@ -213,7 +213,7 @@ function fmt(s){ if(!s) return ""; const [y,m,d] = s.split("-"); return d+"."+m+
 function fmtShort(s){ if(!s) return ""; const [y,m,d] = s.split("-"); return d+"."+m; }
 const MND = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
 const DAGER = ["Søndag","Mandag","Tirsdag","Onsdag","Torsdag","Fredag","Lørdag"];
-function ukedag(s){ return DAGER[fromIso(s).getDay()]; }
+function ukedagKort(s){ return DAGER[fromIso(s).getDay()].slice(0,3)+"."; }
 
 function lastRensDate(c){
   if(!c.history) return null;
@@ -329,18 +329,18 @@ function renderDashList(){
     const rensDate = lastRensDate(c);
     const svcDate = lastServiceOnlyDate(c);
     let histLines = "";
-    if(rensDate) histLines += '<div class="caddr"><span class="c-rens">Renset:</span> ' + fmt(rensDate) + '</div>';
-    if(svcDate)  histLines += '<div class="caddr"><span class="c-svc">Service:</span> ' + fmt(svcDate) + '</div>';
+    if(rensDate) histLines += '<div class="caddr"><span class="c-rens">Renset:</span> ' + ukedagKort(rensDate) + ' ' + fmt(rensDate) + '</div>';
+    if(svcDate)  histLines += '<div class="caddr"><span class="c-svc">Service:</span> ' + ukedagKort(svcDate) + ' ' + fmt(svcDate) + '</div>';
     const upcoming = DB.appointments
       .filter(a => a.companyId === c.id && a.date >= todayIso)
       .sort((a,b) => a.date.localeCompare(b.date) || (a.time||"").localeCompare(b.time||""));
     const nextRens = upcoming.find(a => a.rens);
     const nextSvc  = upcoming.find(a => !a.rens);
     let planLines = "";
-    if(nextRens){ const t = nextRens.time ? ' - '+esc(nextRens.time) : '';
-      planLines += '<div class="caddr"><span class="c-rens">Rens:</span> ' + ukedag(nextRens.date) + ' - ' + fmtShort(nextRens.date) + t + '</div>'; }
-    if(nextSvc){ const t = nextSvc.time ? ' - '+esc(nextSvc.time) : '';
-      planLines += '<div class="caddr"><span class="c-svc">' + esc(nextSvc.title||"Service") + ':</span> ' + ukedag(nextSvc.date) + ' - ' + fmtShort(nextSvc.date) + t + '</div>'; }
+    if(nextRens){ const t = nextRens.time ? ' · '+esc(nextRens.time) : '';
+      planLines += '<div class="caddr"><span class="c-rens">Rens:</span> ' + ukedagKort(nextRens.date) + ' ' + fmtShort(nextRens.date) + t + '</div>'; }
+    if(nextSvc){ const t = nextSvc.time ? ' · '+esc(nextSvc.time) : '';
+      planLines += '<div class="caddr"><span class="c-svc">' + esc(nextSvc.title||"Service") + ':</span> ' + ukedagKort(nextSvc.date) + ' ' + fmtShort(nextSvc.date) + t + '</div>'; }
     const planBlock = planLines ? '<div class="cgroup">Planlagt</div>' + planLines : "";
     const histBlock = histLines ? '<div class="cgroup">Sist utført</div>' + histLines : "";
     const divider = (planBlock && histBlock) ? '<div class="cdiv"></div>' : "";
