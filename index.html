@@ -20,9 +20,11 @@ html,body{margin:0; padding:0; background:var(--bg); color:var(--text);
   font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; font-size:16px}
 body{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
 .wrap{max-width:640px; margin:0 auto; padding:14px 14px 24px}
-.ver{position:absolute; top:calc(7px + env(safe-area-inset-top)); right:10px; z-index:15;
-  font-size:11px; font-weight:700; color:var(--muted); background:var(--surface);
-  border:1px solid var(--line); border-radius:99px; padding:2px 8px; pointer-events:none}
+.verbar{position:absolute; top:0; left:0; right:0; max-width:640px; margin:0 auto;
+  display:flex; justify-content:flex-end; padding:calc(7px + env(safe-area-inset-top)) 14px 0;
+  pointer-events:none; z-index:15}
+.ver{font-size:11px; font-weight:700; color:var(--muted); background:var(--surface);
+  border:1px solid var(--line); border-radius:99px; padding:2px 8px}
 h1{font-size:20px; font-weight:800; letter-spacing:.3px; margin:6px 0 14px}
 h2{font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); margin:22px 0 8px}
 .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
@@ -155,7 +157,7 @@ a.link{color:var(--amber); text-decoration:none; font-weight:600}
 </head>
 <body>
 <div class="wrap" id="app"></div>
-<div id="ver" class="ver"></div>
+<div class="verbar"><span id="ver" class="ver"></span></div>
 <nav class="nav" id="nav"></nav>
 <div id="modal"></div>
 <div id="toastbox"></div>
@@ -164,7 +166,7 @@ a.link{color:var(--amber); text-decoration:none; font-weight:600}
 "use strict";
 /* ================= data ================= */
 const KEY = "anleggsservice_v1";
-const APP_VERSION = "v29";
+const APP_VERSION = "v30";
 const SERVICE_TASKS = ["Brixe","Pumpe","Kompressor","Regulator","Kraner","WWB","KeyKeg","Kjøler","Tappeblokk"];
 let DB = load();
 function load(){
