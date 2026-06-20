@@ -74,6 +74,8 @@ button{font-family:inherit; cursor:pointer; border:none; border-radius:11px; fon
 .btn-sm{background:var(--surface2); color:var(--text); border:1px solid var(--line); padding:7px 12px; font-size:13px}
 
 .search{margin-bottom:12px}
+.clockTop{font-size:26px; font-weight:600; letter-spacing:.2px; margin:6px 0 2px}
+.clockDate{font-size:14px; font-weight:600; color:var(--muted); margin:0 0 16px}
 .fab{position:fixed; right:18px; bottom:calc(78px + env(safe-area-inset-bottom));
   width:56px; height:56px; border-radius:50%; background:var(--amber); color:#1A1408;
   font-size:30px; line-height:0; box-shadow:0 4px 14px rgba(0,0,0,.45); z-index:5}
@@ -166,7 +168,7 @@ a.link{color:var(--amber); text-decoration:none; font-weight:600}
 "use strict";
 /* ================= data ================= */
 const KEY = "anleggsservice_v1";
-const APP_VERSION = "v30";
+const APP_VERSION = "v34";
 const SERVICE_TASKS = ["Brixe","Pumpe","Kompressor","Regulator","Kraner","WWB","KeyKeg","Kjøler","Tappeblokk"];
 let DB = load();
 function load(){
@@ -221,6 +223,15 @@ function fmtShort(s){ if(!s) return ""; const [y,m,d] = s.split("-"); return d+"
 const MND = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
 const DAGER = ["Søndag","Mandag","Tirsdag","Onsdag","Torsdag","Fredag","Lørdag"];
 function ukedagKort(s){ return DAGER[fromIso(s).getDay()].slice(0,3)+"."; }
+function updateClock(){
+  const top = $("clockTop"); if(!top) return;
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2,"0");
+  const mm = String(d.getMinutes()).padStart(2,"0");
+  top.textContent = DAGER[d.getDay()] + " · " + hh + ":" + mm;
+  const dt = $("clockDate");
+  if(dt) dt.textContent = d.getDate() + ". " + MND[d.getMonth()] + " " + d.getFullYear();
+}
 
 function lastRensDate(c){
   if(!c.history) return null;
@@ -311,15 +322,15 @@ function render(){
 
 /* ================= dashboard ================= */
 function renderDash(){
-  let h = "<h1>Dashbord</h1>";
+  let h = '<div class="clockTop" id="clockTop"></div><div class="clockDate" id="clockDate"></div>';
   if(DB.companies.length >= 3){
     const last = DB.lastExport ? (today0() - fromIso(DB.lastExport.slice(0,10)))/86400000 : 999;
     if(last > 30) h += '<div class="banner">Over 30 dager siden forrige backup. Ta en eksport under Backup-fanen.</div>';
   }
-  h += '<input class="search" type="search" placeholder="Søk bedrift…" value="'+esc(searchQ)+'" oninput="searchQ=this.value; renderDashList()">';
   h += '<div id="dashlist"></div>';
   h += '<button class="btn" onclick="openCompanyForm()">+ Legg til bedrift</button>';
   $("app").innerHTML = h;
+  updateClock();
   renderDashList();
 }
 function renderDashList(){
@@ -876,6 +887,7 @@ function importData(input){
 
 /* ================= init ================= */
 $("ver").textContent = APP_VERSION;
+setInterval(updateClock, 10000);
 history.replaceState({v:"dash", d:null}, "");
 render();
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
