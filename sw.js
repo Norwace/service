@@ -1,5 +1,6 @@
-const CACHE = "anleggsservice-v49";
-const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
+const CACHE = "anleggsservice-v52";
+const PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", PDFLIB];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
   self.skipWaiting();
@@ -12,7 +13,16 @@ self.addEventListener("activate", e => {
 });
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
-  // Ikke rør kryss-domene-trafikk (Firebase, Google-innlogging osv.)
+  // jsPDF fra CDN: cache først, så den virker offline
+  if(e.request.url === PDFLIB){
+    e.respondWith(caches.match(PDFLIB).then(r => r || fetch(e.request).then(res => {
+      const copy = res.clone();
+      caches.open(CACHE).then(c => c.put(PDFLIB, copy));
+      return res;
+    })));
+    return;
+  }
+  // Ikke rør annen kryss-domene-trafikk (Firebase, Google-innlogging osv.)
   if(url.origin !== location.origin) return;
   if(e.request.method !== "GET") return;
   const isAppShell = e.request.mode === "navigate" ||
