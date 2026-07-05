@@ -1,4 +1,4 @@
-const CACHE = "anleggsservice-v52";
+const CACHE = "anleggsservice-v53";
 const PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", PDFLIB];
 self.addEventListener("install", e => {
