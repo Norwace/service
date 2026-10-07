@@ -1,6 +1,6 @@
 // Testversjonen (/test/) har egen cache, så den ekte appen og testen ikke rører hverandre
 const IS_TEST = self.registration.scope.includes("/test/");
-const CACHE = "anleggsservice-v67" + (IS_TEST ? "-test" : "");
+const CACHE = "anleggsservice-v68" + (IS_TEST ? "-test" : "");
 const PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", PDFLIB];
 self.addEventListener("install", e => {
