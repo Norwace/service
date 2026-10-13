@@ -1,6 +1,6 @@
 // Testversjonen (/test/) har egen cache, så den ekte appen og testen ikke rører hverandre
 const IS_TEST = self.registration.scope.includes("/test/");
-const CACHE = "anleggsservice-v72" + (IS_TEST ? "-test" : "");
+const CACHE = "anleggsservice-v75" +(IS_TEST ? "-test" : "");
 const PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", PDFLIB];
 self.addEventListener("install", e => {
@@ -32,15 +32,22 @@ self.addEventListener("fetch", e => {
   const isAppShell = e.request.mode === "navigate" ||
     url.pathname.endsWith("/") || url.pathname.endsWith("index.html");
   if(isAppShell){
-    // Nett først for selve appen: henter nyeste når du har dekning,
-    // faller tilbake til cache når du er offline.
-    e.respondWith(
-      fetch(e.request).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put("./index.html", copy));
-        return res;
-      }).catch(() => caches.match("./index.html"))
-    );
+    // Nett først for selve appen: henter nyeste når du har dekning.
+    // Offline, eller nettet bruker over 3 sek (dårlig dekning): bruk lagret versjon.
+    // Nedlastingen fortsetter i bakgrunnen og oppdaterer cachen til neste gang.
+    const cached = () => caches.match("./index.html");
+    const net = fetch(e.request);
+    const update = net.then(res => {
+      if(!res.ok) return;
+      const copy = res.clone();
+      return caches.open(CACHE).then(c => c.put("./index.html", copy));
+    }).catch(() => {});
+    const slow = new Promise(r => setTimeout(r, 3000)).then(cached);
+    e.respondWith(Promise.race([
+      net.catch(cached),
+      slow.then(r => r || net)       // ingen lagret versjon ennå → vent på nettet
+    ]));
+    e.waitUntil(update);
   } else {
     // Cache først for ikoner/manifest (endres sjelden).
     e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(r => r || fetch(e.request)));
