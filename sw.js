@@ -1,8 +1,11 @@
 // Testversjonen (/test/) har egen cache, så den ekte appen og testen ikke rører hverandre
 const IS_TEST = self.registration.scope.includes("/test/");
-const CACHE = "anleggsservice-v75" +(IS_TEST ? "-test" : "");
+const CACHE = "anleggsservice-v78" +(IS_TEST ? "-test" : "");
 const PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", PDFLIB];
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";            // PDF-visning av kataloger
+const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const LIBS = [PDFLIB, PDFJS, PDFJS_WORKER];
+const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", ...LIBS];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
   self.skipWaiting();
@@ -15,11 +18,12 @@ self.addEventListener("activate", e => {
 });
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
-  // jsPDF fra CDN: cache først, så den virker offline
-  if(e.request.url === PDFLIB){
-    e.respondWith(caches.match(PDFLIB).then(r => r || fetch(e.request).then(res => {
+  // jsPDF og PDF.js fra CDN: cache først, så de virker offline
+  if(LIBS.includes(e.request.url)){
+    const url = e.request.url;
+    e.respondWith(caches.match(url).then(r => r || fetch(e.request).then(res => {
       const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(PDFLIB, copy));
+      caches.open(CACHE).then(c => c.put(url, copy));
       return res;
     })));
     return;
