@@ -1,6 +1,6 @@
 // Testversjonen (/test/) har egen cache, så den ekte appen og testen ikke rører hverandre
 const IS_TEST = self.registration.scope.includes("/test/");
-const CACHE = "anleggsservice-v82" +(IS_TEST ? "-test" : "");
+const CACHE = "anleggsservice-v83" +(IS_TEST ? "-test" : "");
 const PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
 const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";            // PDF-visning av kataloger
 const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
